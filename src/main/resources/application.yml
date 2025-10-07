@@ -1,0 +1,16 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: MBCPR-Server
+
+  websocket:
+    message-size-limit: 8192
+    send-buffer-size-limit: 8192
+
+logging:
+  level:
+    MBCPR.server: DEBUG
+    org.springframework.web: INFO
+    org.springframework.websocket: DEBUG
