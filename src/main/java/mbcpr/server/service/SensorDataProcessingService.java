@@ -46,7 +46,6 @@ public class SensorDataProcessingService {
 
         ProcessedSensorData processedData = new ProcessedSensorData();
         processedData.setPressure(sensorData.getPressure());
-        processedData.setDepth(depth);
         processedData.setCompressionRate(compressionRate);
         processedData.setTimestamp(System.currentTimeMillis());
 
