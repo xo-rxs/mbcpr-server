@@ -9,8 +9,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class ProcessedSensorData {
     private double pressure;         // 압력 센서 값
-    private double depth;            // 계산된 압박 깊이 (cm)
     private int compressionRate;     // 계산된 분당 압박 횟수
-    private String quality;          // "good", "too_shallow", "too_deep", "too_slow", "too_fast"
+    private String quality;          // "good", "too_slow", "too_fast"
     private long timestamp;
 }
