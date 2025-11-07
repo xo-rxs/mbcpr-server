@@ -41,7 +41,7 @@ public class BoardCommunicationService extends TextWebSocketHandler {
         if (serialNumber != null) {
             boardSessions.put(serialNumber, session);
             lastPingResponse.put(serialNumber, System.currentTimeMillis());
-            log.info("✅ 보드 연결 성공: {}", serialNumber);
+            log.info("보드 연결 성공: {}", serialNumber);
 
             // 연결 확인 메시지 전송
             session.sendMessage(new TextMessage("CONNECTED"));

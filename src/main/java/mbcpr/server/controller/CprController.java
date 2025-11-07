@@ -1,5 +1,7 @@
 package mbcpr.server.controller;
 
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import mbcpr.server.dto.CommunicationRequest;
 import mbcpr.server.dto.CommunicationResponse;
 import mbcpr.server.dto.ConnectionCheckRequest;
@@ -7,8 +9,6 @@ import mbcpr.server.dto.ConnectionResponse;
 import mbcpr.server.service.BoardCommunicationService;
 import mbcpr.server.service.CprCommunicationService;
 import mbcpr.server.service.SensorDataProcessingService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -108,8 +108,20 @@ public class CprController {
      */
     @GetMapping(value = "/stream/{serialNumber}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamSensorData(@PathVariable String serialNumber) {
-        log.info("센서 데이터 스트림 연결: {}", serialNumber);
-        return cprCommunicationService.createEmitter(serialNumber);
+        log.info("SSE 스트림 연결 요청: {}", serialNumber);
+
+        try {
+            SseEmitter emitter = cprCommunicationService.createEmitter(serialNumber);
+            log.info("SSE Emitter 생성 완료: {}", serialNumber);
+            return emitter;
+        } catch (Exception e) {
+            log.error("SSE Emitter 생성 실패: {}", serialNumber, e);
+            SseEmitter emitter = new SseEmitter();
+            try {
+                emitter.completeWithError(e);
+            } catch (Exception ignored) {}
+            return emitter;
+        }
     }
 
     /**
