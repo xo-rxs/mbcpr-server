@@ -38,25 +38,19 @@ public class SensorDataProcessingService {
             return;
         }
 
-        // 압력 센서로 압박 깊이 계산
         double depth = calculateDepthFromPressure(sensorData.getPressure());
-
-        // 압력 변화로 압박 주기 계산
         int compressionRate = calculateCompressionRate(serialNumber, sensorData.getPressure());
-
-        ProcessedSensorData processedData = new ProcessedSensorData();
-        processedData.setPressure(sensorData.getPressure());
-        processedData.setCompressionRate(compressionRate);
-        processedData.setTimestamp(System.currentTimeMillis());
-
-        // 품질 평가
         String quality = evaluateQuality(depth, compressionRate);
-        processedData.setQuality(quality);
 
-        log.debug("센서 데이터 정제 완료: {} - Pressure: {}, Depth: {}, Rate: {}, Quality: {}",
-                serialNumber, sensorData.getPressure(), depth, compressionRate, quality);
+        // Record 사용 시 생성자 방식 변경
+        ProcessedSensorData processedData = new ProcessedSensorData(
+                sensorData.getPressure(),
+                compressionRate,
+                quality,
+                System.currentTimeMillis()
+        );
 
-        // 앱으로 전송
+        log.debug("Data: {} - Rate: {}, Quality: {}", serialNumber, compressionRate, quality);
         cprCommunicationService.sendProcessedData(serialNumber, processedData);
     }
 

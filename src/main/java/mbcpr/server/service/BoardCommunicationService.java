@@ -42,49 +42,35 @@ public class BoardCommunicationService extends TextWebSocketHandler {
             boardSessions.put(serialNumber, session);
             lastPingResponse.put(serialNumber, System.currentTimeMillis());
             log.info("보드 연결 성공: {}", serialNumber);
-
-            // 연결 확인 메시지 전송
             session.sendMessage(new TextMessage("CONNECTED"));
         } else {
-            log.error("❌ Serial Number가 없어서 연결 실패");
-            session.close();
+            log.error("Serial Number 누락으로 연결 거부: {}", session.getRemoteAddress());
+            session.close(CloseStatus.BAD_DATA);
         }
     }
 
     @Override
-    protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
+    protected void handleTextMessage(WebSocketSession session, TextMessage message) {
         String payload = message.getPayload();
         String serialNumber = getSerialNumberFromSession(session);
 
-        log.info("보드로부터 메시지 수신: {} - {}", serialNumber, payload);
+        if (serialNumber == null) return;
 
+        // PONG 처리 등 간단한 메시지는 빠르게 리턴
         if ("PONG".equals(payload)) {
             lastPingResponse.put(serialNumber, System.currentTimeMillis());
             return;
         }
-
-        if ("YES".equals(payload)) {
-            // 연결 확인 응답
+        if ("YES".equals(payload) || "ACCEPTED".equals(payload) || "STOPPED".equals(payload)) {
             return;
         }
 
-        if ("ACCEPTED".equals(payload)) {
-            // 통신 시작 수락 응답
-            return;
-        }
-
-        if ("STOPPED".equals(payload)) {
-            // 통신 중지 완료 응답
-            return;
-        }
-
-        // 센서 데이터로 처리
         try {
             SensorData sensorData = objectMapper.readValue(payload, SensorData.class);
-            sensorData.setSerialNumber(serialNumber);
+            sensorData.setSerialNumber(serialNumber); // SensorData는 Class 유지 필요
             sensorDataProcessingService.processSensorData(sensorData);
         } catch (Exception e) {
-            log.error("센서 데이터 파싱 실패: {}", payload, e);
+            log.error("데이터 처리 실패 [{}]: {}", serialNumber, payload, e);
         }
     }
 
