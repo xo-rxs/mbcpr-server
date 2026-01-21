@@ -29,7 +29,7 @@ public class SensorDataProcessingService {
 
     // 압력 센서 설정
     private static final double PRESSURE_THRESHOLD = 10.0; // 압박 감지 임계값
-    private static final double PRESSURE_TO_DEPTH_RATIO = 0.12; // 압력-깊이 변환 계수 (실험으로 보정 필요)
+    private static final double PRESSURE_TO_DEPTH_RATIO = 0.3; // 압력-깊이 변환 계수 (실험으로 보정 필요)
 
     public void processSensorData(SensorData sensorData) {
         String serialNumber = sensorData.getSerialNumber();
