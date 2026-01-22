@@ -21,15 +21,14 @@ public class SensorDataProcessingService {
     private final Map<String, Queue<Long>> compressionTimestamps = new ConcurrentHashMap<>();
     private final Map<String, Double> lastPressure = new ConcurrentHashMap<>();
 
-    // CPR 가이드라인 기준 (대한심폐소생협회 기준)
-    private static final double MIN_DEPTH = 5.0; // cm (최소 깊이)
-    private static final double MAX_DEPTH = 6.0; // cm (최대 깊이)
-    private static final int MIN_RATE = 100; // 분당 압박 횟수 (최소)
-    private static final int MAX_RATE = 120; // 분당 압박 횟수 (최대)
+    // 속도(Rate) 기준
+    private static final int RATE_MIN = 100;
+    private static final int RATE_MAX = 120;
 
-    // 압력 센서 설정
-    private static final double PRESSURE_THRESHOLD = 10.0; // 압박 감지 임계값
-    private static final double PRESSURE_TO_DEPTH_RATIO = 0.3; // 압력-깊이 변환 계수 (실험으로 보정 필요)
+
+    private static final double DEPTH_THRESHOLD_MIN = 12.0;
+    private static final double DEPTH_THRESHOLD_GOOD = 18.0;
+    private static final double DEPTH_THRESHOLD_MAX = 22.0;
 
     public void processSensorData(SensorData sensorData) {
         String serialNumber = sensorData.getSerialNumber();
@@ -38,35 +37,33 @@ public class SensorDataProcessingService {
             return;
         }
 
-        double depth = calculateDepthFromPressure(sensorData.getPressure());
-        int compressionRate = calculateCompressionRate(serialNumber, sensorData.getPressure());
-        String quality = evaluateQuality(depth, compressionRate);
+        double currentPressure = sensorData.getPressure();
 
-        // Record 사용 시 생성자 방식 변경
+        // 1. 속도(BPM) 계산 (초반 1분 미만 보정 로직 포함)
+        int compressionRate = calculateCompressionRate(serialNumber, currentPressure);
+
+        // 2. 깊이 및 속도 상태 개별 판정
+        String depthStatus = evaluateDepthQuality(currentPressure);
+        String rateStatus = evaluateRateQuality(compressionRate);
+
+        // 3. 결과 DTO 생성 (상태값 분리됨)
         ProcessedSensorData processedData = new ProcessedSensorData(
-                sensorData.getPressure(),
+                currentPressure,
                 compressionRate,
-                quality,
+                depthStatus,
+                rateStatus,
                 System.currentTimeMillis()
         );
 
-        log.debug("Data: {} - Rate: {}, Quality: {}", serialNumber, compressionRate, quality);
+        log.debug("Data: {} - Rate: {}, DepthStat: {}, RateStat: {}",
+                serialNumber, compressionRate, depthStatus, rateStatus);
+
         cprCommunicationService.sendProcessedData(serialNumber, processedData);
     }
 
     /**
-     * 압력 센서 값으로 압박 깊이 계산
-     */
-    private double calculateDepthFromPressure(double pressure) {
-        // 압력값을 깊이(cm)로 변환
-        double depth = pressure * PRESSURE_TO_DEPTH_RATIO;
-
-        // 0~10cm 범위로 제한
-        return Math.max(0, Math.min(depth, 10.0));
-    }
-
-    /**
-     * 압력 변화로 압박 주기 계산 (분당 횟수)
+     * 압박 주기(BPM) 계산
+     * - 1분 미만일 경우: (횟수 / 경과시간) * 60 공식으로 환산하여 즉각적인 속도 반영
      */
     private int calculateCompressionRate(String serialNumber, double currentPressure) {
         Queue<Long> timestamps = compressionTimestamps.computeIfAbsent(
@@ -75,45 +72,83 @@ public class SensorDataProcessingService {
 
         Double prevPressure = lastPressure.get(serialNumber);
 
-        // 압력이 임계값을 넘고, 이전보다 증가했으면 압박으로 감지
+        // [압박 감지 로직]
+        // 1. 최소 깊이(12) 이상이고
+        // 2. 이전 값보다 5 이상 급격히 상승했을 때 압박으로 인정
         if (prevPressure != null &&
-                currentPressure > PRESSURE_THRESHOLD &&
-                currentPressure > prevPressure + 5.0) { // 급격한 압력 증가 감지
+                currentPressure >= DEPTH_THRESHOLD_MIN &&
+                currentPressure > prevPressure + 5.0) {
 
             long currentTime = System.currentTimeMillis();
 
-            // 너무 짧은 간격(0.3초 미만) 압박은 무시 (노이즈 제거)
+            // 노이즈 제거: 0.3초 이내 연속 감지 무시
             if (!timestamps.isEmpty() && currentTime - timestamps.peek() < 300) {
                 lastPressure.put(serialNumber, currentPressure);
-                return timestamps.size();
+                return calculateBpmFromQueue(timestamps, currentTime);
             }
 
             timestamps.offer(currentTime);
+        }
 
-            // 60초(1분) 이상 된 데이터 제거
-            while (!timestamps.isEmpty() &&
-                    currentTime - timestamps.peek() > 60000) {
-                timestamps.poll();
-            }
+        // 1분(60초) 지난 데이터 제거
+        long currentTime = System.currentTimeMillis();
+        while (!timestamps.isEmpty() && currentTime - timestamps.peek() > 60000) {
+            timestamps.poll();
         }
 
         lastPressure.put(serialNumber, currentPressure);
 
-        // 최근 1분간의 압박 횟수 = 분당 압박 횟수
-        return timestamps.size();
+        return calculateBpmFromQueue(timestamps, currentTime);
     }
 
-    private String evaluateQuality(double depth, int rate) {
-        if (depth < MIN_DEPTH) {
-            return "too_shallow";
-        } else if (depth > MAX_DEPTH) {
-            return "too_deep";
-        } else if (rate < MIN_RATE) {
-            return "too_slow";
-        } else if (rate > MAX_RATE) {
-            return "too_fast";
+    /**
+     * 큐 데이터를 기반으로 BPM 계산 (보정 로직 적용)
+     */
+    private int calculateBpmFromQueue(Queue<Long> timestamps, long currentTime) {
+        int count = timestamps.size();
+
+        // 데이터가 2개 미만이면 간격 계산 불가 -> 0 리턴
+        if (count < 2) {
+            return 0;
+        }
+
+        long firstTime = timestamps.peek();
+        long durationSeconds = (currentTime - firstTime) / 1000; // 경과 시간(초)
+
+        if (durationSeconds >= 5 && durationSeconds < 60) {
+            return (int) ((count / (double) durationSeconds) * 60);
+        }
+
+        return count;
+    }
+
+    /**
+     * 깊이 품질 평가
+     */
+    private String evaluateDepthQuality(double pressure) {
+        if (pressure < DEPTH_THRESHOLD_MIN) {
+            return "waiting";      // 12 미만
+        } else if (pressure < DEPTH_THRESHOLD_GOOD) {
+            return "too_shallow";  // 12 ~ 17.9
+        } else if (pressure < DEPTH_THRESHOLD_MAX) {
+            return "good";         // 18 ~ 21.9
         } else {
-            return "good";
+            return "too_deep";     // 22 이상
+        }
+    }
+
+    /**
+     * 속도 품질 평가
+     */
+    private String evaluateRateQuality(int bpm) {
+        if (bpm == 0) {
+            return "waiting";
+        } else if (bpm < RATE_MIN) {
+            return "too_slow";     // 100 미만
+        } else if (bpm > RATE_MAX) {
+            return "too_fast";     // 120 초과
+        } else {
+            return "good";         // 100 ~ 120
         }
     }
 
