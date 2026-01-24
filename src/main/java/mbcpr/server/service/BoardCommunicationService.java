@@ -42,7 +42,11 @@ public class BoardCommunicationService extends TextWebSocketHandler {
             boardSessions.put(serialNumber, session);
             lastPingResponse.put(serialNumber, System.currentTimeMillis());
             log.info("보드 연결 성공: {}", serialNumber);
-            session.sendMessage(new TextMessage("CONNECTED"));
+
+            // 연결 초기 메시지 전송 (동기화 적용)
+            synchronized (session) {
+                session.sendMessage(new TextMessage("CONNECTED"));
+            }
         } else {
             log.error("Serial Number 누락으로 연결 거부: {}", session.getRemoteAddress());
             session.close(CloseStatus.BAD_DATA);
@@ -56,9 +60,11 @@ public class BoardCommunicationService extends TextWebSocketHandler {
 
         if (serialNumber == null) return;
 
+        // (타임아웃 방지)
+        lastPingResponse.put(serialNumber, System.currentTimeMillis());
+
         // PONG 처리 등 간단한 메시지는 빠르게 리턴
         if ("PONG".equals(payload)) {
-            lastPingResponse.put(serialNumber, System.currentTimeMillis());
             return;
         }
         if ("YES".equals(payload) || "ACCEPTED".equals(payload) || "STOPPED".equals(payload)) {
@@ -67,7 +73,7 @@ public class BoardCommunicationService extends TextWebSocketHandler {
 
         try {
             SensorData sensorData = objectMapper.readValue(payload, SensorData.class);
-            sensorData.setSerialNumber(serialNumber); // SensorData는 Class 유지 필요
+            sensorData.setSerialNumber(serialNumber);
             sensorDataProcessingService.processSensorData(sensorData);
         } catch (Exception e) {
             log.error("데이터 처리 실패 [{}]: {}", serialNumber, payload, e);
@@ -94,7 +100,7 @@ public class BoardCommunicationService extends TextWebSocketHandler {
             return false;
         }
 
-        // 15초 이상 응답이 없으면 연결 끊김으로 판단
+        // 15초 이상 응답(데이터 포함)이 없으면 연결 끊김으로 판단
         return System.currentTimeMillis() - lastPing < 15000;
     }
 
@@ -105,18 +111,22 @@ public class BoardCommunicationService extends TextWebSocketHandler {
 
         try {
             WebSocketSession session = boardSessions.get(serialNumber);
-            session.sendMessage(new TextMessage("CHECK"));
+            if (session.isOpen()) {
+                // 동기화 적용
+                synchronized (session) {
+                    session.sendMessage(new TextMessage("CHECK"));
+                }
 
-            long startTime = System.currentTimeMillis();
-            while (System.currentTimeMillis() - startTime < timeoutSeconds * 1000) {
-                Thread.sleep(100);
-                // 여기서는 간단하게 처리하고, 실제로는 응답을 기다리는 로직 필요
+                long startTime = System.currentTimeMillis();
+                while (System.currentTimeMillis() - startTime < timeoutSeconds * 1000) {
+                    Thread.sleep(100);
+                }
+                return true;
             }
-            return true;
         } catch (Exception e) {
             log.error("연결 확인 실패: {}", serialNumber, e);
-            return false;
         }
+        return false;
     }
 
     public boolean startCommunication(String serialNumber) {
@@ -126,7 +136,10 @@ public class BoardCommunicationService extends TextWebSocketHandler {
         }
 
         try {
-            session.sendMessage(new TextMessage("START"));
+            // 동기화 적용
+            synchronized (session) {
+                session.sendMessage(new TextMessage("START"));
+            }
             return true;
         } catch (IOException e) {
             log.error("통신 시작 요청 실패: {}", serialNumber, e);
@@ -141,13 +154,19 @@ public class BoardCommunicationService extends TextWebSocketHandler {
         }
 
         try {
-            // STOP 메시지 전송
-            session.sendMessage(new TextMessage("STOP"));
+            // STOP 메시지 전송 (동기화 적용)
+            synchronized (session) {
+                session.sendMessage(new TextMessage("STOP"));
+            }
             log.info("STOP 메시지 전송: {}", serialNumber);
 
             // 짧은 대기 후 EXIT 메시지 전송
             Thread.sleep(100);
-            session.sendMessage(new TextMessage("EXIT"));
+
+            // EXIT 메시지 전송 (동기화 적용)
+            synchronized (session) {
+                session.sendMessage(new TextMessage("EXIT"));
+            }
             log.info("EXIT 메시지 전송 (통신 종료 신호): {}", serialNumber);
 
             return true;
@@ -157,13 +176,16 @@ public class BoardCommunicationService extends TextWebSocketHandler {
         }
     }
 
-    @Scheduled(fixedRate = 10000) // 10초마다 실행
+    @Scheduled(fixedRate = 10000)
     public void sendPingToAllBoards() {
         log.debug("모든 보드에 PING 전송");
         boardSessions.forEach((serialNumber, session) -> {
             if (session.isOpen()) {
                 try {
-                    session.sendMessage(new TextMessage("PING"));
+                    // PING 전송 (동기화 적용)
+                    synchronized (session) {
+                        session.sendMessage(new TextMessage("PING"));
+                    }
                     log.debug("PING 전송: {}", serialNumber);
                 } catch (IOException e) {
                     log.error("PING 전송 실패: {}", serialNumber, e);
@@ -175,16 +197,11 @@ public class BoardCommunicationService extends TextWebSocketHandler {
     private String getSerialNumberFromSession(WebSocketSession session) {
         try {
             String query = session.getUri().getQuery();
-            log.debug("Session URI: {}", session.getUri());
-            log.debug("Query String: {}", query);
-
             if (query != null && query.contains("serial=")) {
                 String[] params = query.split("&");
                 for (String param : params) {
                     if (param.startsWith("serial=")) {
-                        String serial = param.substring(7);
-                        log.info("Serial Number 추출 성공: {}", serial);
-                        return serial;
+                        return param.substring(7);
                     }
                 }
             }

@@ -96,16 +96,19 @@ public class CprCommunicationService {
         }
     }
 
-    // Heartbeat: 30초마다 빈 데이터를 보내 연결 유지 (Nginx 등의 타임아웃 방지)
     @Scheduled(fixedRate = 30000)
     public void sendHeartbeat() {
         appEmitters.forEach((serial, emitter) -> {
-            try {
-                emitter.send(SseEmitter.event().comment("ping"));
-            } catch (IOException e) {
-                // Heartbeat 실패 시 조용히 정리
-                appEmitters.remove(serial);
-                emitter.completeWithError(e);
+            synchronized (emitter) {
+                try {
+                    emitter.send(SseEmitter.event().comment("ping"));
+                } catch (IOException e) {
+                    appEmitters.remove(serial);
+                    emitter.completeWithError(e);
+                } catch (Exception e) {
+                    appEmitters.remove(serial);
+                    emitter.complete();
+                }
             }
         });
     }
