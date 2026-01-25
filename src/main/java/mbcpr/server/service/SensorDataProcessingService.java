@@ -84,7 +84,7 @@ public class SensorDataProcessingService {
     private String evaluateDepthQuality(double pressure) {
         if (pressure < DEPTH_MIN) {
             return "too_shallow"; // 12 미만
-        } else if (pressure <= DEPTH_APPROPRIATE) {
+        } else if (DEPTH_APPROPRIATE <= pressure && pressure <= 22) {
             return "good";        // 12 이상 ~ 18 이하 (적정)
         } else {
             return "too_deep";    // 18 초과 (깊음)
