@@ -25,8 +25,9 @@ public class SensorDataProcessingService {
     private static final double MIN_VALID_PRESSURE = 5.0;
     private static final int BPM_AVG_WINDOW = 5; // 최근 5개 압박의 평균 사용
 
-    private static final double DEPTH_MIN = 12.0;
-    private static final double DEPTH_APPROPRIATE = 18.0;
+    private static final double DEPTH_SHALLOW_LIMIT = 12.0;
+    private static final double DEPTH_GOOD_MIN = 18.0;
+    private static final double DEPTH_GOOD_MAX = 22.0;
 
 
 
@@ -90,9 +91,15 @@ public class SensorDataProcessingService {
     }
 
     private String evaluateDepthQuality(double pressure) {
-        if (pressure < DEPTH_MIN) return "too_shallow";
-        else if (DEPTH_APPROPRIATE <= pressure&& pressure <= 22) return "good";
-        else return "too_deep";
+        if (pressure < DEPTH_SHALLOW_LIMIT) {
+            return "too_shallow";
+        } else if (pressure < DEPTH_GOOD_MIN) {
+            return "too_shallow";
+        } else if (pressure <= DEPTH_GOOD_MAX) {
+            return "good";            
+        } else {
+            return "too_deep";
+        }
     }
 
     private String evaluateRateByBpm(int bpm) {
