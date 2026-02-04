@@ -58,9 +58,9 @@ public class SensorDataProcessingService {
         String rateStatus = "waiting";
 
         if (lastTime != null) {
-            long interval = lastTime - currentTime;
+            long interval = currentTime - lastTime;
 
-            if(interval < 300){
+            if (interval < 300) {
                 return;
             }
             int currentRawBpm = (int) (60000 / interval);
@@ -77,7 +77,6 @@ public class SensorDataProcessingService {
 
             rateStatus = evaluateRateByBpm(finalBpm);
         }
-
 
         lastCompressionTime.put(serialNumber, currentTime);
 
